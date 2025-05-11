@@ -1,132 +1,245 @@
-
-import React, { useState, useEffect, useRef } from 'react';
-import { Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { TranscriptionResult } from '@/services/AIService';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { Word, formatTranscript, TranscriptSegment, convertToHHMMSS } from '../utils/transcriptUtils';
 
 interface TranscriptProps {
-  transcription: TranscriptionResult | null;
+  transcription: {
+    text: string;
+    words: Word[];
+  } | null;
   currentTime: number;
-  onTimestampClick: (time: number) => void;
+  onSeek: (time: number) => void;
   className?: string;
+  isProcessing?: boolean;
 }
 
-const Transcript: React.FC<TranscriptProps> = ({ 
-  transcription, 
-  currentTime,
-  onTimestampClick,
-  className 
-}) => {
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [filteredWords, setFilteredWords] = useState<typeof transcription.words>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const currentWordRef = useRef<HTMLSpanElement>(null);
+// Memoize the timeToSeconds function to prevent recreation on each render
+const timeToSeconds = (timeStr: string): number => {
+  const parts = timeStr.split(':').map(Number).reverse();
+  return parts.reduce((total, part, index) => {
+    return total + (part * Math.pow(60, index));
+  }, 0);
+};
 
+// Memoized segment component to prevent unnecessary re-renders
+const TranscriptSegmentItem = React.memo(({ 
+  segment, 
+  isActive, 
+  onClick 
+}: { 
+  segment: TranscriptSegment; 
+  isActive: boolean; 
+  onClick: (time: string) => void 
+}) => {
+  // Format the timestamp using convertToHHMMSS
+  const formattedTime = useMemo(() => convertToHHMMSS(segment.startTime), [segment.startTime]);
+  
+  return (
+    <div 
+      className={cn(
+        'mb-2 p-2 rounded-md transition-colors cursor-pointer',
+        isActive 
+          ? 'bg-blue-50 border-l-4 border-blue-500' 
+          : 'hover:bg-gray-50'
+      )}
+      onClick={() => onClick(segment.startTime)}
+    >
+      <button 
+        className={cn(
+          'text-sm font-mono mr-2 focus:outline-none',
+          isActive ? 'text-blue-600 font-medium' : 'text-gray-500 hover:text-blue-600'
+        )}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick(segment.startTime);
+        }}
+        aria-label={`Jump to ${formattedTime}`}
+      >
+        [{formattedTime}]
+      </button>
+      <span className="text-sm">
+        {segment.text}
+      </span>
+    </div>
+  );
+});
+
+TranscriptSegmentItem.displayName = 'TranscriptSegmentItem';
+
+const Transcript: React.FC<TranscriptProps> = ({
+  transcription,
+  currentTime,
+  onSeek,
+  className,
+  isProcessing = false,
+}) => {
+  const [formattedSegments, setFormattedSegments] = useState<TranscriptSegment[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
+  const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastProcessedId = useRef<string>('');
+  const lastActiveIndex = useRef<number>(-1);
+
+  // Generate a unique ID for the current transcription to prevent reprocessing
+  const transcriptionId = useMemo(() => {
+    if (!transcription?.words?.length) return '';
+    return JSON.stringify(transcription.words.map(w => `${w.start}-${w.end}-${w.text}`));
+  }, [transcription]);
+
+  // Process transcript when transcription changes
+  const processTranscript = useCallback(async (words: Word[]) => {
+    if (!words || !words.length) {
+      setFormattedSegments([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const currentId = JSON.stringify(words.map(w => `${w.start}-${w.end}-${w.text}`));
+    if (currentId === lastProcessedId.current) {
+      return; // Skip if we've already processed this exact transcription
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const segments = await formatTranscript(words);
+      setFormattedSegments(segments);
+      segmentRefs.current = segments.map((_, i) => segmentRefs.current[i] || null);
+      lastProcessedId.current = currentId;
+    } catch (err) {
+      console.error('Error formatting transcript:', err);
+      setError('Failed to load transcript. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Process transcript when transcription changes
   useEffect(() => {
-    if (transcription) {
-      if (searchQuery.trim() === '') {
-        setFilteredWords(transcription.words);
-      } else {
-        const query = searchQuery.toLowerCase();
-        const filtered = transcription.words.filter(word => 
-          word.text.toLowerCase().includes(query)
-        );
-        setFilteredWords(filtered);
+    if (transcription?.words) {
+      processTranscript(transcription.words);
+    } else {
+      setFormattedSegments([]);
+      setIsLoading(false);
+    }
+  }, [transcription, processTranscript]);
+
+  // Memoize the segments to prevent unnecessary re-renders
+  const memoizedSegments = useMemo(() => formattedSegments, [formattedSegments]);
+
+  // Find active segment based on current time
+  useEffect(() => {
+    if (memoizedSegments.length === 0) return;
+
+    const currentTimeInSeconds = currentTime;
+    
+    // Find the segment that contains the current time
+    let activeIndex = -1;
+    
+    // Only update if we have segments and the time has meaningfully changed
+    if (memoizedSegments.length > 0) {
+      activeIndex = memoizedSegments.findIndex((segment, index) => {
+        const segmentStart = timeToSeconds(segment.startTime);
+        const nextSegmentStart = index < memoizedSegments.length - 1 
+          ? timeToSeconds(memoizedSegments[index + 1].startTime) 
+          : Infinity;
+        
+        return currentTimeInSeconds >= segmentStart && currentTimeInSeconds < nextSegmentStart;
+      });
+    }
+
+    // Only update state if the active index has actually changed
+    if (activeIndex !== lastActiveIndex.current) {
+      setActiveSegmentIndex(activeIndex);
+      lastActiveIndex.current = activeIndex;
+    }
+  }, [currentTime, memoizedSegments]);
+
+  // Scroll active segment into view
+  useEffect(() => {
+    if (activeSegmentIndex >= 0 && segmentRefs.current[activeSegmentIndex]) {
+      const activeElement = segmentRefs.current[activeSegmentIndex];
+      const container = containerRef.current;
+      
+      if (activeElement && container) {
+        const containerRect = container.getBoundingClientRect();
+        const activeRect = activeElement.getBoundingClientRect();
+        
+        // Only scroll if the element is not in view
+        if (
+          activeRect.top < containerRect.top + 100 || // 100px from top
+          activeRect.bottom > containerRect.bottom - 100 // 100px from bottom
+        ) {
+          // Use requestAnimationFrame for smoother scrolling
+          requestAnimationFrame(() => {
+            activeElement.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center',
+            });
+          });
+        }
       }
     }
-  }, [searchQuery, transcription]);
+  }, [activeSegmentIndex]);
 
-  // Scroll to current word
-  useEffect(() => {
-    if (currentWordRef.current && containerRef.current) {
-      // Calculate the position to scroll to
-      const containerHeight = containerRef.current.clientHeight;
-      const wordTop = currentWordRef.current.offsetTop;
-      const wordHeight = currentWordRef.current.clientHeight;
-      
-      // Scroll to position word in the middle of the container
-      containerRef.current.scrollTop = wordTop - (containerHeight / 2) + (wordHeight / 2);
-    }
-  }, [currentTime]);
+  // Memoize the click handler to prevent unnecessary re-renders
+  const handleTimestampClick = useCallback((timeStr: string) => {
+    const timeInSeconds = timeToSeconds(timeStr);
+    onSeek(timeInSeconds);
+  }, [onSeek]);
 
-  if (!transcription) {
+  // Show loading state
+  if (isProcessing) {
     return (
-      <div className={cn("flex flex-col space-y-4", className)}>
-        <div className="flex items-center p-4 bg-meeting-light rounded-lg">
-          <p className="text-meeting-dark text-center w-full">
-            No transcript available. Upload a file to get started.
-          </p>
-        </div>
+      <div className={cn('flex flex-col items-center justify-center p-8', className)}>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
       </div>
     );
   }
 
-  // Format time as MM:SS
-  const formatTime = (timeInSeconds: number): string => {
-    const minutes = Math.floor(timeInSeconds / 60);
-    const seconds = Math.floor(timeInSeconds % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
+  // Show error state
+  if (error) {
+    return <div className={cn('p-4 text-red-500', className)}>{error}</div>;
+  }
 
-  // Find the current word based on the current time
-  const currentWordIndex = transcription.words.findIndex(
-    word => currentTime >= word.start && currentTime <= word.end
-  );
+  // Show empty state
+  if (!memoizedSegments || memoizedSegments.length === 0) {
+    return (
+      <div className={cn('p-4 text-gray-500 text-center', className)}>
+        {isLoading ? 'Loading transcript...' : 'No transcript available. Upload an audio file to generate a transcript.'}
+      </div>
+    );
+  }
 
   return (
-    <div className={cn("flex flex-col space-y-4", className)}>
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-        <Input
-          className="pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-meeting-primary"
-          placeholder="Search transcript..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </div>
-      
-      <div 
-        ref={containerRef}
-        className="bg-white border rounded-lg p-4 overflow-y-auto max-h-[400px]"
-      >
-        {filteredWords.length > 0 ? (
-          filteredWords.map((word, index) => {
-            const isCurrentWord = transcription.words.indexOf(word) === currentWordIndex;
-            const isFirst = index === 0 || (filteredWords[index - 1].start !== word.start);
-            
-            return (
-              <React.Fragment key={`${word.start}-${word.end}-${index}`}>
-                {isFirst && (
-                  <button 
-                    onClick={() => onTimestampClick(word.start)}
-                    className="inline-flex items-center justify-center px-2 py-0.5 mr-2 text-xs font-medium text-meeting-primary bg-meeting-accent rounded hover:bg-meeting-primary hover:text-white transition-colors"
-                  >
-                    {formatTime(word.start)}
-                  </button>
-                )}
-                <span
-                  ref={isCurrentWord ? currentWordRef : null}
-                  className={cn(
-                    "inline mx-0.5", 
-                    isCurrentWord ? "bg-meeting-primary text-white px-1 rounded" : "",
-                    searchQuery && word.text.toLowerCase().includes(searchQuery.toLowerCase()) 
-                      ? "bg-yellow-200" 
-                      : ""
-                  )}
-                >
-                  {word.text}
-                </span>
-                {word.text.endsWith('.') && <br />}
-              </React.Fragment>
-            );
-          })
-        ) : (
-          <p className="text-center text-gray-500">No matching results found</p>
-        )}
-      </div>
+    <div 
+      ref={containerRef}
+      className={cn('overflow-y-auto h-full p-2', className)}
+    >
+      {memoizedSegments.map((segment, index) => (
+        <div 
+          key={`${segment.startTime}-${index}`}
+          ref={el => segmentRefs.current[index] = el}
+        >
+          <TranscriptSegmentItem 
+            segment={segment} 
+            isActive={index === activeSegmentIndex}
+            onClick={handleTimestampClick}
+          />
+        </div>
+      ))}
     </div>
   );
 };
 
-export default Transcript;
+export default React.memo(Transcript, (prevProps, nextProps) => {
+  // Only re-render if these specific props change
+  return (
+    prevProps.currentTime === nextProps.currentTime &&
+    prevProps.isProcessing === nextProps.isProcessing &&
+    JSON.stringify(prevProps.transcription) === JSON.stringify(nextProps.transcription)
+  );
+});

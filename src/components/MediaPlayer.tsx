@@ -1,207 +1,413 @@
-
-import React, { useRef, useState, useEffect } from 'react';
-import { Play, Pause, SkipBack } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { cn } from '@/lib/utils';
+import { Play, Pause, Volume2, VolumeX, Maximize2, Minimize2 } from 'lucide-react';
+import { Button } from './ui/button';
+import { Slider } from './ui/slider';
 
 interface MediaPlayerProps {
-  file: File | null;
+  src: string;
   currentTime: number;
   onTimeUpdate: (time: number) => void;
-  onReady: () => void;
+  onSeek: (time: number) => void;
   className?: string;
+  autoPlay?: boolean;
 }
 
-const MediaPlayer: React.FC<MediaPlayerProps> = ({ 
-  file, 
-  currentTime,
+export interface MediaPlayerHandle {
+  play: () => void;
+  pause: () => void;
+  seekTo: (time: number) => void;
+}
+
+const MediaPlayer = forwardRef<MediaPlayerHandle, MediaPlayerProps>(({
+  src,
+  currentTime: externalCurrentTime,
   onTimeUpdate,
-  onReady,
-  className 
-}) => {
-  const mediaRef = useRef<HTMLVideoElement | null>(null);
-  const [duration, setDuration] = useState<number>(0);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  onSeek,
+  className,
+  autoPlay = false,
+}, ref) => {
+  const [isPlaying, setIsPlaying] = useState(autoPlay);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [isHovering, setIsHovering] = useState(false);
+  const [isSeeking, setIsSeeking] = useState(false);
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout>();
+  const playerRef = useRef<HTMLDivElement>(null);
+  const lastUpdateTimeRef = useRef(0);
+  const updateIntervalRef = useRef<NodeJS.Timeout>();
 
-  // Create object URL when file changes
-  useEffect(() => {
-    if (file) {
-      setIsLoading(true);
-      const url = URL.createObjectURL(file);
-      setMediaUrl(url);
-      
-      // Reset player state
-      setIsPlaying(false);
-      if (mediaRef.current) {
-        mediaRef.current.currentTime = 0;
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    play: () => {
+      if (videoRef.current) {
+        videoRef.current.play().catch(console.error);
+        setIsPlaying(true);
       }
+    },
+    pause: () => {
+      if (videoRef.current) {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      }
+    },
+    seekTo: (time: number) => {
+      if (videoRef.current) {
+        videoRef.current.currentTime = time;
+      }
+    },
+  }));
 
-      // Clean up function
-      return () => {
-        URL.revokeObjectURL(url);
-      };
-    } else {
-      setMediaUrl(null);
-    }
-  }, [file]);
-
-  // Handle metadata loaded
-  const handleLoadedMetadata = () => {
-    if (mediaRef.current) {
-      setDuration(mediaRef.current.duration);
-      setIsLoading(false);
-      onReady();
-    }
-  };
-
-  // Handle time update
-  const handleTimeUpdate = () => {
-    if (mediaRef.current) {
-      onTimeUpdate(mediaRef.current.currentTime);
-    }
-  };
-
-  // Sync with external currentTime changes
-  useEffect(() => {
-    if (mediaRef.current && Math.abs(mediaRef.current.currentTime - currentTime) > 0.5) {
-      mediaRef.current.currentTime = currentTime;
-    }
-  }, [currentTime]);
-
-  // Toggle play/pause
+  // Handle play/pause
   const togglePlay = () => {
-    if (mediaRef.current) {
+    if (videoRef.current) {
       if (isPlaying) {
-        mediaRef.current.pause();
+        videoRef.current.pause();
       } else {
-        mediaRef.current.play();
+        videoRef.current.play().catch(console.error);
       }
       setIsPlaying(!isPlaying);
     }
   };
 
-  // Reset to beginning
-  const resetPosition = () => {
-    if (mediaRef.current) {
-      mediaRef.current.currentTime = 0;
-      onTimeUpdate(0);
+  // Handle volume change
+  const handleVolumeChange = (value: number[]) => {
+    const newVolume = value[0];
+    setVolume(newVolume);
+    if (videoRef.current) {
+      videoRef.current.volume = newVolume;
+      setIsMuted(newVolume === 0);
     }
   };
 
-  // Handle slider change
-  const handleSliderChange = (value: number[]) => {
-    if (mediaRef.current) {
-      const newTime = (value[0] / 100) * duration;
-      mediaRef.current.currentTime = newTime;
-      onTimeUpdate(newTime);
+  // Toggle mute
+  const toggleMute = () => {
+    if (videoRef.current) {
+      const newMuted = !isMuted;
+      videoRef.current.muted = newMuted;
+      setIsMuted(newMuted);
+      if (newMuted) {
+        setVolume(0);
+      } else {
+        setVolume(videoRef.current.volume);
+      }
     }
   };
 
-  // Format time as MM:SS
+  // Handle time update from video element
+  const handleTimeUpdate = () => {
+    if (videoRef.current && !isSeeking) {
+      const now = Date.now();
+      // Throttle the updates to prevent too many re-renders
+      if (now - lastUpdateTimeRef.current > 100) {
+        onTimeUpdate(videoRef.current.currentTime);
+        lastUpdateTimeRef.current = now;
+      }
+    }
+  };
+
+  // Handle seek from slider
+  const handleSeek = (value: number[]) => {
+    const newTime = value[0];
+    if (videoRef.current) {
+      videoRef.current.currentTime = newTime;
+      onSeek(newTime);
+    }
+  };
+
+  // Handle slider value change (during drag)
+  const handleSliderValueChange = (value: number[]) => {
+    setIsSeeking(true);
+  };
+
+  // Handle slider commit (after drag)
+  const handleSliderCommit = (value: number[]) => {
+    handleSeek(value);
+    setTimeout(() => setIsSeeking(false), 100);
+  };
+
+  // Toggle fullscreen
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      playerRef.current?.requestFullscreen().catch(console.error);
+    } else {
+      document.exitFullscreen().catch(console.error);
+    }
+  };
+
+  // Format time in HH:MM:SS
   const formatTime = (timeInSeconds: number): string => {
-    const minutes = Math.floor(timeInSeconds / 60);
+    const hours = Math.floor(timeInSeconds / 3600);
+    const minutes = Math.floor((timeInSeconds % 3600) / 60);
     const seconds = Math.floor(timeInSeconds % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    
+    if (hours > 0) {
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
+
+  // Sync with external currentTime
+  useEffect(() => {
+    if (videoRef.current && !isSeeking) {
+      // Only update if the difference is significant to prevent jitter
+      if (Math.abs(videoRef.current.currentTime - externalCurrentTime) > 0.1) {
+        videoRef.current.currentTime = externalCurrentTime;
+      }
+    }
+  }, [externalCurrentTime, isSeeking]);
+
+  // Set up time update interval
+  useEffect(() => {
+    if (isPlaying) {
+      updateIntervalRef.current = setInterval(() => {
+        if (videoRef.current && !isSeeking) {
+          onTimeUpdate(videoRef.current.currentTime);
+        }
+      }, 100);
+    }
+
+    return () => {
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+      }
+    };
+  }, [isPlaying, isSeeking, onTimeUpdate]);
+
+  // Set up keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!videoRef.current) return;
+
+      switch (e.key.toLowerCase()) {
+        case ' ':
+        case 'k':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'm':
+          e.preventDefault();
+          toggleMute();
+          break;
+        case 'f':
+          e.preventDefault();
+          toggleFullscreen();
+          break;
+        case 'arrowleft':
+        case 'j':
+          e.preventDefault();
+          videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
+          break;
+        case 'arrowright':
+        case 'l':
+          e.preventDefault();
+          videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 5);
+          break;
+        case 'arrowup':
+          e.preventDefault();
+          handleVolumeChange([Math.min(1, volume + 0.1)]);
+          break;
+        case 'arrowdown':
+          e.preventDefault();
+          handleVolumeChange([Math.max(0, volume - 0.1)]);
+          break;
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          e.preventDefault();
+          const percent = parseInt(e.key) / 10;
+          if (videoRef.current) {
+            const seekTime = percent * duration;
+            videoRef.current.currentTime = seekTime;
+            onSeek(seekTime);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [volume, duration, onSeek]);
+
+  // Handle fullscreen change
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Set up controls auto-hide
+  useEffect(() => {
+    const resetControlsTimeout = () => {
+      setShowControls(true);
+      clearTimeout(controlsTimeoutRef.current);
+      controlsTimeoutRef.current = setTimeout(() => {
+        if (isPlaying) {
+          setShowControls(false);
+        }
+      }, 3000);
+    };
+
+    if (isPlaying) {
+      resetControlsTimeout();
+    } else {
+      setShowControls(true);
+    }
+
+    return () => {
+      clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [isPlaying, isHovering]);
 
   return (
-    <div className={cn("flex flex-col space-y-2 w-full", className)}>
-      {file && file.type.includes('video/') ? (
-        <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
-          {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40">
-              <div className="w-10 h-10 border-4 border-meeting-primary border-t-transparent rounded-full animate-spin"></div>
-            </div>
-          )}
-          <video
-            ref={mediaRef}
-            src={mediaUrl || undefined}
-            className="w-full h-full"
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={handleLoadedMetadata}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onEnded={() => setIsPlaying(false)}
-          />
-        </div>
-      ) : (
-        <div className="relative w-full aspect-[4/1] bg-gradient-to-r from-meeting-light to-meeting-accent rounded-lg overflow-hidden flex items-center justify-center">
-          {isLoading ? (
-            <div className="w-10 h-10 border-4 border-meeting-primary border-t-transparent rounded-full animate-spin"></div>
-          ) : (
-            <div className="flex flex-col items-center justify-center text-meeting-dark">
-              <div className="w-16 h-16 mb-2 rounded-full bg-meeting-primary bg-opacity-10 flex items-center justify-center">
-                <div className="w-8 h-8 animate-pulse-subtle">
-                  {isPlaying ? (
-                    <div className="w-3 h-8 mx-auto bg-meeting-primary rounded-sm"></div>
-                  ) : (
-                    <div className="w-0 h-0 mx-auto border-t-8 border-b-8 border-l-12 border-t-transparent border-b-transparent border-l-meeting-primary"></div>
-                  )}
-                </div>
-              </div>
-              <p className="text-sm font-medium">{file?.name || "Audio Player"}</p>
-            </div>
-          )}
-          <audio
-            ref={mediaRef}
-            src={mediaUrl || undefined}
-            className="hidden"
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={handleLoadedMetadata}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onEnded={() => setIsPlaying(false)}
-          />
-        </div>
+    <div 
+      ref={playerRef}
+      className={cn(
+        'relative w-full bg-black rounded-lg overflow-hidden group',
+        className
       )}
+      onMouseEnter={() => {
+        setIsHovering(true);
+        setShowControls(true);
+      }}
+      onMouseLeave={() => {
+        setIsHovering(false);
+        if (isPlaying) {
+          setShowControls(false);
+        }
+      }}
+      onMouseMove={() => {
+        if (!showControls) setShowControls(true);
+      }}
+    >
+      <video
+        ref={videoRef}
+        src={src}
+        className="w-full h-full"
+        onClick={togglePlay}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={() => {
+          if (videoRef.current) {
+            setDuration(videoRef.current.duration);
+            videoRef.current.volume = volume;
+            videoRef.current.muted = isMuted;
+            if (autoPlay) {
+              videoRef.current.play().catch(console.error);
+            }
+          }
+        }}
+        onPlay={() => {
+          setIsPlaying(true);
+          setShowControls(true);
+        }}
+        onPause={() => {
+          setIsPlaying(false);
+          setShowControls(true);
+        }}
+        onEnded={() => {
+          setIsPlaying(false);
+          setShowControls(true);
+        }}
+      />
 
-      <div className="flex flex-col space-y-2 w-full">
-        <div className="flex items-center space-x-2">
-          <Button 
-            size="icon" 
-            variant="ghost" 
-            onClick={resetPosition}
-            disabled={!mediaUrl}
-            className="rounded-full hover:bg-meeting-accent hover:text-meeting-primary"
-          >
-            <SkipBack className="w-5 h-5" />
-          </Button>
-          <Button 
-            size="icon" 
-            onClick={togglePlay} 
-            disabled={!mediaUrl}
-            className={cn(
-              "rounded-full w-10 h-10", 
-              isPlaying 
-                ? "bg-meeting-primary hover:bg-meeting-secondary text-white" 
-                : "bg-meeting-primary hover:bg-meeting-secondary text-white"
-            )}
-          >
-            {isPlaying ? (
-              <Pause className="w-5 h-5" />
-            ) : (
-              <Play className="w-5 h-5" />
-            )}
-          </Button>
-          <div className="text-sm font-medium text-meeting-dark">
-            {formatTime(currentTime)} / {formatTime(duration)}
+      {/* Controls overlay */}
+      <div 
+        className={cn(
+          'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 transition-opacity duration-300',
+          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        )}
+      >
+        {/* Progress bar */}
+        <div className="mb-2">
+          <Slider
+            value={[externalCurrentTime]}
+            max={duration || 100}
+            step={0.1}
+            onValueChange={handleSliderValueChange}
+            onValueCommit={handleSliderCommit}
+            className="w-full cursor-pointer"
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={togglePlay}
+              className="text-white hover:bg-white/20"
+            >
+              {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+            </Button>
+
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleMute}
+                className="text-white hover:bg-white/20"
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX className="h-5 w-5" />
+                ) : volume > 0.5 ? (
+                  <Volume2 className="h-5 w-5" />
+                ) : (
+                  <Volume2 className="h-5 w-5" />
+                )}
+              </Button>
+              <Slider
+                value={[isMuted ? 0 : volume]}
+                max={1}
+                step={0.01}
+                onValueChange={handleVolumeChange}
+                className="w-24 cursor-pointer"
+              />
+            </div>
+
+            <div className="text-white text-sm ml-2">
+              {formatTime(externalCurrentTime)} / {formatTime(duration)}
+            </div>
+          </div>
+
+          <div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleFullscreen}
+              className="text-white hover:bg-white/20"
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-5 w-5" />
+              ) : (
+                <Maximize2 className="h-5 w-5" />
+              )}
+            </Button>
           </div>
         </div>
-        
-        <Slider
-          disabled={!mediaUrl}
-          value={[duration ? (currentTime / duration) * 100 : 0]}
-          max={100}
-          step={0.1}
-          onValueChange={handleSliderChange}
-          className="cursor-pointer"
-        />
       </div>
     </div>
   );
-};
+});
+
+MediaPlayer.displayName = 'MediaPlayer';
 
 export default MediaPlayer;

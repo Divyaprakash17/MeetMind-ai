@@ -1,0 +1,47 @@
+{
+  "mayor": {
+    "name": "Patrick Taran",
+    "role": "Mayor",
+    "aliases": ["mayor taran", "patrick"]
+  },
+  "councillor miller": {
+    "name": "Mark Miller",
+    "role": "Councillor",
+    "aliases": ["counciller miller", "counc miller", "mark"]
+  },
+  "councillor warren": {
+    "name": "Melinda Warren",
+    "role": "Councillor",
+    "aliases": ["counciller warren", "counc warren", "melinda"]
+  },
+  "councillor fuel": {
+    "name": "Glenn Fuel",
+    "role": "Councillor",
+    "aliases": ["counciller fuel", "counc fuel", "glenn", "illor"]
+  },
+  "councillor kaczynski": {
+    "name": "Andy Kaczynski",
+    "role": "Councillor",
+    "aliases": ["counciller kaczynski", "counc kaczynski", "andy"]
+  },
+  "ceo": {
+    "name": "CEO",
+    "role": "Staff"
+  },
+  "cfo": {
+    "name": "CFO",
+    "role": "Staff"
+  },
+  "clerk": {
+    "name": "Clerk",
+    "role": "Staff"
+  },
+  "deputy": {
+    "name": "Deputy",
+    "role": "Staff"
+  },
+  "unknown": {
+    "name": "Unknown",
+    "role": "Participant"
+  }
+}

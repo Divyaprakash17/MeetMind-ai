@@ -1,15 +1,17 @@
-
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Upload, FileCheck2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface FileUploaderProps {
   onFileSelected: (file: File) => void;
   isProcessing: boolean;
+  disabled?: boolean;
+  className?: string;
 }
 
-const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelected, isProcessing }) => {
+const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelected, isProcessing, disabled = false, className }) => {
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,11 +60,18 @@ const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelected, isProcessin
     }
   };
 
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFile(file);
+    }
+  }, [handleFile]);
+
   return (
     <div 
-      className={`relative flex flex-col items-center justify-center w-full p-6 border-2 border-dashed rounded-lg transition-all ${
-        dragActive ? 'border-meeting-primary bg-meeting-accent' : 'border-gray-300 bg-meeting-light'
-      } ${selectedFile ? 'bg-opacity-50' : ''}`}
+      className={cn("relative flex flex-col items-center justify-center w-full p-6 border-2 border-dashed rounded-lg transition-all", className, {
+        'opacity-50 cursor-not-allowed': disabled,
+      })}
       onDragEnter={handleDrag}
       onDragOver={handleDrag}
       onDragLeave={handleDrag}
@@ -72,8 +81,9 @@ const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelected, isProcessin
         ref={inputRef}
         type="file"
         accept="audio/*,video/*"
-        onChange={handleChange}
+        onChange={handleFileChange}
         className="hidden"
+        disabled={disabled}
       />
       
       {selectedFile ? (
@@ -112,10 +122,16 @@ const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelected, isProcessin
           <Button 
             onClick={onButtonClick}
             className="bg-meeting-primary hover:bg-meeting-secondary text-white"
+            disabled={disabled}
           >
             Browse Files
           </Button>
         </>
+      )}
+      {disabled && (
+        <div className="mt-2 text-sm text-gray-500 text-center">
+          Processing your file...
+        </div>
       )}
     </div>
   );
