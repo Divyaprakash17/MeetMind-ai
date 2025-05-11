@@ -1,6 +1,6 @@
-# Meeting Companion - AI Meeting Transcription & Analysis
+# MeetMind-ai - AI Meeting Transcription & Analysis
 
-Meeting Companion is a web application that leverages AI to transcribe and analyze meeting recordings. It provides accurate transcriptions, speaker identification, and generates structured meeting summaries including key points, action items, and highlights.
+MeetMind-ai is a web application that leverages AI to transcribe and analyze meeting recordings. It provides accurate transcriptions, speaker identification, and generates structured meeting summaries including key points, action items, and highlights.
 
 ## ✨ Features
 
