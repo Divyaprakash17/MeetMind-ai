@@ -1,73 +1,104 @@
-# Welcome to your myproject project
+# Meeting Companion - AI Meeting Transcription & Analysis
 
-## Project info
+Meeting Companion is a web application that leverages AI to transcribe and analyze meeting recordings. It provides accurate transcriptions, speaker identification, and generates structured meeting summaries including key points, action items, and highlights.
 
-**URL**: https://myproject.dev/projects/f5c36428-55d3-4a7b-9020-31201240ce3b
+## ✨ Features
 
-## How can I edit this code?
+- 🎤 Upload and transcribe meeting recordings (audio/video)
+- 🎧 Interactive media player with synchronized transcript
+- 🎯 Speaker identification and diarization
+- 📝 AI-powered meeting summarization
+- 🔍 Searchable transcript with timestamps
+- 📋 Structured meeting notes with key points and action items
+- 🎨 Modern, responsive UI built with React and TypeScript
 
-There are several ways of editing your application.
+## 🚀 Getting Started
 
-**Use myproject**
+### Prerequisites
 
-Simply visit the [myproject Project](https://myproject.dev/projects/f5c36428-55d3-4a7b-9020-31201240ce3b) and start prompting.
+- Node.js (v16 or later)
+- npm or yarn
+- API keys for:
+  - AssemblyAI (for transcription)
+  - Google Gemini (for summarization)
 
-Changes made via myproject will be committed automatically to this repo.
+### Installation
 
-**Use your preferred IDE**
+1. Clone the repository:
+   ```sh
+   git clone <repository-url>
+   cd meet-scribe-ai-sync
+   ```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in myproject.
+2. Install dependencies:
+   ```sh
+   npm install
+   ```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+3. Create a `.env` file in the root directory with your API keys:
+   ```
+   VITE_ASSEMBLYAI_API_KEY=your_assemblyai_api_key_here
+   VITE_GEMINI_API_KEY=your_gemini_api_key_here
+   ```
 
-Follow these steps:
+4. Start the development server:
+   ```sh
+   npm run dev
+   ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+5. Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+## 🛠️ Tech Stack
 
-# Step 3: Install the necessary dependencies.
-npm i
+- **Frontend**: React, TypeScript, Vite
+- **UI Components**: Radix UI, Tailwind CSS
+- **State Management**: React Query
+- **AI Services**:
+  - AssemblyAI for speech-to-text transcription
+  - Google Gemini for meeting summarization
+- **Build Tool**: Vite
+- **Package Manager**: npm
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+## 📁 Project Structure
+
+```
+meet-scribe-ai-sync/
+├── public/               # Static assets
+├── src/
+│   ├── components/      # Reusable UI components
+│   ├── pages/            # Page components
+│   ├── services/         # API and service integrations
+│   ├── App.tsx           # Main application component
+│   └── main.tsx          # Application entry point
+├── .env                  # Environment variables
+├── package.json          # Project dependencies and scripts
+└── vite.config.ts        # Vite configuration
 ```
 
-**Edit a file directly in GitHub**
+## 📝 Usage
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+1. **Upload a Meeting Recording**:
+   - Click the upload area or drag and drop an audio/video file
+   - Supported formats: MP3, WAV, M4A, MP4, etc.
 
-**Use GitHub Codespaces**
+2. **View Transcription**:
+   - The transcript will appear once processing is complete
+   - Click on any part of the transcript to jump to that point in the recording
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+3. **Explore Summary**:
+   - Switch to the "Summary" tab to view AI-generated meeting insights
+   - Includes key points, action items, and participant information
 
-## What technologies are used for this project?
+## 🤝 Contributing
 
-This project is built with:
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## 📄 License
 
-## How can I deploy this project?
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-Simply open [myproject](https://myproject.dev/projects/f5c36428-55d3-4a7b-9020-31201240ce3b) and click on Share -> Publish.
+## 🙏 Acknowledgments
 
-## Can I connect a custom domain to my myproject project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.myproject.dev/tips-tricks/custom-domain#step-by-step-guide)
+- [AssemblyAI](https://www.assemblyai.com/) for speech-to-text transcription
+- [Google Gemini](https://ai.google.dev/) for AI-powered summarization
+- [Radix UI](https://www.radix-ui.com/) for accessible UI components
